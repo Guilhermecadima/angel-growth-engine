@@ -6,7 +6,6 @@ import {
   TrendingUp, Users, Zap
 } from 'lucide-react';
 import { api, type Campaign, type GrowthResult, type SimulationResult } from './lib/api';
-// @ts-expect-error CSS is handled by the bundler at runtime.
 import './styles.css';
 
 type Tab = 'overview' | 'growth' | 'simulator';
