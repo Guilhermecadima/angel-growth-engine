@@ -1,5 +1,7 @@
 let tokenCache: { token: string; expiresAt: number } | null = null;
 
+export const spotifyReady = () => Boolean(process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET);
+
 async function token() {
   if (tokenCache && Date.now() < tokenCache.expiresAt) return tokenCache.token;
   const id = process.env.SPOTIFY_CLIENT_ID!;
@@ -36,6 +38,10 @@ export async function spotifyMetrics(trackId: string) {
     durationMs: data.duration_ms ?? 0,
     source: 'spotify-api'
   };
+}
+
+export async function spotifyTrack(trackId: string) {
+  return spotifyMetrics(trackId);
 }
 
 export function spotifyIdeas(metrics: any) {

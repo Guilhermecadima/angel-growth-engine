@@ -1,38 +1,36 @@
-const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api';
+import { supabase } from './supabase';
 
-export type Campaign = {
-  id: string; name: string; platform: 'youtube'|'spotify'; resourceId: string;
-  goal: string; createdAt: string; snapshots: {at:string; metrics:Record<string, any>}[];
-};
+const BASE = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:3001/api' : '/api');
 
-export type GrowthResult = {
-  score:number; platform:string; goal:string; audience:string; headline:string;
-  recommendations:string[]; next24h:string[]; hooks:string[]; caption:string; metricsToWatch:string[];
-};
-
-export type SimulationResult = {
-  synthetic:boolean; warning:string; platform:string; requested:number; durationMinutes:number;
-  rejected:number; validated:number; likes:number; comments:number; follows:number;
-  avgRetention:number; rejectionRate:number;
-  timeline:{minute:number;gross:number;validated:number}[];
-};
-
-async function json<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${url}`, { ...init, headers: { 'Content-Type':'application/json', ...(init?.headers ?? {}) }});
-  if (!res.ok) throw new Error((await res.json().catch(()=>({}))).error ?? `HTTP ${res.status}`);
-  if (res.status === 204) return undefined as T;
-  return res.json();
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const { data } = await supabase.auth.getSession();
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(`${BASE}${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : {}),
+        ...(init?.headers ?? {}),
+      },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error ?? `Pedido falhou (${response.status}).`);
+    return payload as T;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw new Error('O servidor demorou demasiado a responder.');
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 export const api = {
-  health: () => json<{ok:boolean;mockMode:boolean}>('/health'),
-  campaigns: () => json<Campaign[]>('/campaigns'),
-  createCampaign: (body:any) => json<Campaign>('/campaigns',{method:'POST',body:JSON.stringify(body)}),
-  snapshot: (id:string) => json<any>(`/campaigns/${id}/snapshot`,{method:'POST'}),
-  remove: (id:string) => json<void>(`/campaigns/${id}`,{method:'DELETE'}),
-  youtube: (id:string) => json<any>(`/youtube/${encodeURIComponent(id)}`),
-  spotify: (id:string) => json<any>(`/spotify/${encodeURIComponent(id)}`),
-  replies: (text:string) => json<{suggestions:string[]}>('/reply-suggestions',{method:'POST',body:JSON.stringify({text})}),
-  analyseGrowth: (body:any) => json<GrowthResult>('/growth/analyse',{method:'POST',body:JSON.stringify(body)}),
-  simulate: (body:any) => json<SimulationResult>('/simulation/run',{method:'POST',body:JSON.stringify(body)})
+  health: () => request<{ ok: boolean; mockMode: boolean; youtubeReady: boolean; spotifyReady: boolean; aiReady: boolean }>('/health'),
+  youtubeAuthUrl: (artistId: string) => request<{ url: string }>(`/youtube/auth-url?artistId=${encodeURIComponent(artistId)}`),
+  syncYouTube: (artistId: string) => request<{ rowsProcessed: number; mode: 'mock' | 'real' }>(`/youtube/sync/${artistId}`, { method: 'POST' }),
+  spotifyTrack: (trackId: string) => request<Record<string, unknown>>(`/spotify/tracks/${encodeURIComponent(trackId)}`),
+  advancedAnalysis: (body: unknown) => request<{ answer: string; source: 'rules' | 'ai' }>('/ai/analyse', { method: 'POST', body: JSON.stringify(body) }),
 };
